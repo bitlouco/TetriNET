@@ -22,8 +22,16 @@ const canvas = document.getElementById("tetrisCanvas");
 let ws;
 let state;
 let localBoard = null;
+const remotePreviewBoards = new Map();
 let lastBoardSyncAt = 0;
+let lastOwnSlot = null;
 const BOARD_SYNC_INTERVAL_MS = 33;
+const BURST_INTERVAL_MS = 80;
+const BURST_START_DELAY_MS = 220;
+let burstTimer = null;
+let burstStartTimer = null;
+let burstTargetId = null;
+let heldDigit = null;
 
 const suffix = (crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)).slice(0, 5);
 const playerId = `jogador-${suffix}`;
@@ -137,7 +145,11 @@ function renderRoomBoards(room) {
 
     const boardCanvas = document.createElement("canvas");
     wrapper.appendChild(boardCanvas);
-    const board = p ? (id === playerId && p.active && localBoard ? localBoard : p.board) : null;
+    const board = p
+      ? (!p.active
+        ? p.board
+        : (id === playerId && localBoard ? localBoard : (remotePreviewBoards.get(id) ?? p.board)))
+      : null;
     drawBoardOnCanvas(boardCanvas, board);
 
     roomBoardsEl.appendChild(wrapper);
@@ -172,7 +184,8 @@ function updateHud(snapshot) {
       type: "boardSync",
       roomId: ROOM_ID,
       playerId,
-      board: encodeBoardForSync(snapshot.board)
+      board: encodeBoardForSync(snapshot.syncBoard ?? snapshot.board),
+      previewBoard: encodeBoardForSync(snapshot.board)
     });
     lastBoardSyncAt = now;
   }
@@ -203,12 +216,28 @@ const tetris = createLocalTetris({
 });
 
 tetris.start();
-restartBtn.addEventListener("click", () => tetris.restart());
+restartBtn.addEventListener("click", () => {
+  tetris.restart();
+  sendIfConnected({
+    type: "join",
+    roomId: ROOM_ID,
+    playerId,
+    name: playerName
+  });
+});
 
 function renderRoom(room) {
   state = room;
   playersEl.innerHTML = "";
   targetSelect.innerHTML = "";
+  const ownIndex = room.order.findIndex((id) => id === playerId);
+  const ownSlot = ownIndex >= 0 ? ownIndex + 1 : null;
+  const ownSlotText = ownSlot ? `slot ${ownSlot}` : "fora da sala";
+  playerLabel.textContent = `${playerName} (${playerId}) - ${ownSlotText}`;
+  if (ownSlot !== lastOwnSlot) {
+    log(ownSlot ? `Seu jogador esta no slot ${ownSlot}` : "Seu jogador nao esta em um slot ativo", "warn");
+    lastOwnSlot = ownSlot;
+  }
 
   room.order.forEach((id, index) => {
     const p = room.players[id];
@@ -223,7 +252,108 @@ function renderRoom(room) {
     targetSelect.appendChild(opt);
   });
 
+  for (const id of remotePreviewBoards.keys()) {
+    if (!room.players[id]) remotePreviewBoards.delete(id);
+  }
+  for (const id of room.order) {
+    if (!room.players[id]?.active) remotePreviewBoards.delete(id);
+  }
+
   renderRoomBoards(room);
+}
+
+function useBombAtSlot(slotNumber) {
+  if (!state) {
+    log("Estado da sala ainda nao carregado", "warn");
+    return;
+  }
+
+  const idx = slotNumber - 1;
+  const targetId = state.order[idx];
+  if (!targetId) {
+    log(`Slot ${slotNumber} vazio`, "warn");
+    return;
+  }
+
+  targetSelect.value = targetId;
+  send({
+    type: "useBomb",
+    roomId: ROOM_ID,
+    playerId,
+    targetId
+  });
+}
+
+function useBombOnSelf() {
+  if (!state || !state.players?.[playerId]) {
+    log("Voce ainda nao esta ativo na sala", "warn");
+    return;
+  }
+
+  targetSelect.value = playerId;
+  send({
+    type: "useBomb",
+    roomId: ROOM_ID,
+    playerId,
+    targetId: playerId
+  });
+}
+
+function stopBombBurst(reason = "stopped") {
+  if (burstStartTimer) {
+    clearTimeout(burstStartTimer);
+    burstStartTimer = null;
+  }
+  if (burstTimer) {
+    clearInterval(burstTimer);
+    burstTimer = null;
+  }
+  if (burstTargetId) {
+    log(`Rajada encerrada (${reason})`, "warn");
+  }
+  burstTargetId = null;
+}
+
+function sendUseBombTo(targetId) {
+  send({
+    type: "useBomb",
+    roomId: ROOM_ID,
+    playerId,
+    targetId
+  });
+}
+
+function startBombBurst(targetId, label) {
+  if (!targetId) {
+    log("Alvo invalido para rajada", "warn");
+    return;
+  }
+  if (!state?.players?.[playerId]) {
+    log("Jogador local ainda nao ativo para rajada", "warn");
+    return;
+  }
+
+  stopBombBurst("restart");
+  burstTargetId = targetId;
+  targetSelect.value = targetId;
+  log(`Rajada iniciada em ${label}`);
+
+  // First shot is immediate.
+  sendUseBombTo(targetId);
+
+  // Continuous burst starts only if the key stays held for a short delay.
+  burstStartTimer = setTimeout(() => {
+    burstStartTimer = null;
+    if (heldDigit === null) return;
+    burstTimer = setInterval(() => {
+      const queueLen = state?.players?.[playerId]?.bombQueue?.length ?? 0;
+      if (queueLen <= 0) {
+        stopBombBurst("empty-queue");
+        return;
+      }
+      sendUseBombTo(targetId);
+    }, BURST_INTERVAL_MS);
+  }, BURST_START_DELAY_MS);
 }
 
 function connectWebSocket() {
@@ -247,19 +377,36 @@ function connectWebSocket() {
     }
     if (msg.type === "bombResult") {
       log(`useBomb => consumed=${msg.consumed} reason=${msg.reason ?? "ok"}`, msg.consumed ? "ok" : "warn");
+      if (!msg.consumed && msg.reason === "empty-queue") {
+        stopBombBurst("empty-queue");
+      }
+      if (!msg.consumed && msg.reason === "inactive-target") {
+        stopBombBurst("inactive-target");
+      }
     }
     if (msg.type === "error") {
       log(msg.message, "warn");
     }
     if (msg.type === "bombUsed") {
       if (msg.targetId === playerId) {
-        tetris.applyBomb(msg.bomb);
+        tetris.applyBomb(msg.bomb, msg.targetBoard);
         log(`Bomba recebida: ${msg.bomb} (de ${msg.userId})`, "warn");
       }
+      if (msg.bomb === "S" && msg.userId === playerId && msg.userBoard) {
+        tetris.applyBomb(msg.bomb, msg.userBoard);
+        log(`Switch aplicado em ambos os campos`, "warn");
+      }
+    }
+    if (msg.type === "boardPreview") {
+      remotePreviewBoards.set(msg.playerId, msg.board);
+      if (state) renderRoomBoards(state);
     }
   };
 
-  ws.onclose = () => log("Conexao encerrada", "warn");
+  ws.onclose = () => {
+    stopBombBurst("socket-closed");
+    log("Conexao encerrada", "warn");
+  };
 }
 
 startBtn.addEventListener("click", () => {
@@ -285,6 +432,58 @@ useBombBtn.addEventListener("click", () => {
     playerId,
     targetId
   });
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.code === "Escape") {
+    event.preventDefault();
+    stopBombBurst("manual-stop");
+    heldDigit = null;
+    return;
+  }
+
+  const keyDigit = /^[0-9]$/.test(event.key) ? Number(event.key) : null;
+  let codeDigit = null;
+  if (event.code.startsWith("Digit")) codeDigit = Number(event.code.slice("Digit".length));
+  if (event.code.startsWith("Numpad")) codeDigit = Number(event.code.slice("Numpad".length));
+
+  const digit = keyDigit ?? codeDigit;
+  if (digit === null || Number.isNaN(digit)) return;
+
+  event.preventDefault();
+  if (event.repeat) return;
+  heldDigit = digit;
+
+  if (digit === 0) {
+    log("Atalho de bomba: autoalvo (0) [segure para rajada]");
+    startBombBurst(playerId, "autoalvo");
+    return;
+  }
+
+  if (digit >= 1 && digit <= 6) {
+    const idx = digit - 1;
+    const targetId = state?.order?.[idx];
+    if (!targetId) {
+      log(`Slot ${digit} vazio`, "warn");
+    } else {
+      log(`Atalho de bomba: slot ${digit} [segure para rajada]`);
+      startBombBurst(targetId, `slot ${digit}`);
+    }
+  }
+});
+
+window.addEventListener("keyup", (event) => {
+  const keyDigit = /^[0-9]$/.test(event.key) ? Number(event.key) : null;
+  let codeDigit = null;
+  if (event.code.startsWith("Digit")) codeDigit = Number(event.code.slice("Digit".length));
+  if (event.code.startsWith("Numpad")) codeDigit = Number(event.code.slice("Numpad".length));
+  const digit = keyDigit ?? codeDigit;
+  if (digit === null || Number.isNaN(digit)) return;
+
+  if (heldDigit === digit) {
+    stopBombBurst("key-release");
+    heldDigit = null;
+  }
 });
 
 connectWebSocket();

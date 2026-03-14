@@ -4,7 +4,7 @@ export const BOARD_HEIGHT = 22;
 export type Cell = number;
 export type Board = Cell[][];
 
-export type BombType = "A" | "N" | "S" | "Q" | "G" | "C" | "R" | "B";
+export type BombType = "A" | "N" | "S" | "Q" | "G" | "C" | "R" | "B" | "D";
 
 export interface PlayerState {
   id: string;

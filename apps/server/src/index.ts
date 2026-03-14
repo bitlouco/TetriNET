@@ -39,7 +39,8 @@ const boardSyncSchema = z.object({
   type: z.literal("boardSync"),
   roomId: z.string(),
   playerId: z.string(),
-  board: z.array(z.array(z.number()))
+  board: z.array(z.array(z.number())),
+  previewBoard: z.array(z.array(z.number())).optional()
 });
 const gameOverSchema = z.object({ type: z.literal("gameOver"), roomId: z.string(), playerId: z.string() });
 
@@ -50,8 +51,24 @@ function createEliminatedBoard(): Board {
 }
 
 function randomBomb(): BombType {
-  const all: BombType[] = ["A", "N", "S", "Q", "G", "C", "R", "B"];
-  return all[Math.floor(Math.random() * all.length)]!;
+  const weighted: Array<[BombType, number]> = [
+    ["A", 20],
+    ["C", 20],
+    ["D" as BombType, 20],
+    ["R", 10],
+    ["B", 10],
+    ["Q", 8],
+    ["G", 6],
+    ["N", 4],
+    ["S", 2]
+  ];
+  const total = weighted.reduce((acc, [, w]) => acc + w, 0);
+  let roll = Math.random() * total;
+  for (const [bomb, weight] of weighted) {
+    roll -= weight;
+    if (roll < 0) return bomb;
+  }
+  return "A";
 }
 
 function send(client: Client, payload: unknown) {
@@ -161,6 +178,16 @@ wss.on("connection", (socket) => {
       if (!p || !p.active) return;
       p.board = boardSync.data.board as Board;
       broadcastRoom(room);
+      if (boardSync.data.previewBoard) {
+        const payload = JSON.stringify({
+          type: "boardPreview",
+          playerId: boardSync.data.playerId,
+          board: boardSync.data.previewBoard
+        });
+        for (const c of clients.values()) {
+          if (c.roomId === room.id) c.socket.send(payload);
+        }
+      }
       return;
     }
 
@@ -190,7 +217,9 @@ wss.on("connection", (socket) => {
           type: "bombUsed",
           userId: bomb.data.playerId,
           targetId: bomb.data.targetId,
-          bomb: usedBomb
+          bomb: usedBomb,
+          userBoard: result.match.players[bomb.data.playerId]?.board ?? null,
+          targetBoard: result.match.players[bomb.data.targetId]?.board ?? null
         });
         for (const c of clients.values()) {
           if (c.roomId === room.id) c.socket.send(payload);

@@ -1,6 +1,7 @@
 import { BOARD_HEIGHT, BOARD_WIDTH, type Board, type BombType, type MatchState, type PlayerState } from "./types.js";
 
 export const MAX_BOMB_QUEUE = 8;
+const ALL_BOMBS: BombType[] = ["A", "N", "S", "Q", "G", "C", "R", "B", "D"];
 
 export function createEmptyBoard(): Board {
   return Array.from({ length: BOARD_HEIGHT }, () => Array.from({ length: BOARD_WIDTH }, () => 0));
@@ -78,6 +79,30 @@ function randomInt(maxExclusive: number, rng: () => number): number {
   return Math.floor(rng() * maxExclusive);
 }
 
+function randomColor(rng: () => number): number {
+  return randomInt(7, rng) + 1;
+}
+
+function randomGarbageLine(rng: () => number): number[] {
+  const line: number[] = Array.from({ length: BOARD_WIDTH }, () => (rng() < 0.35 ? 0 : randomColor(rng)));
+  if (!line.every((cell) => cell === 0)) return line;
+  const filledAt = randomInt(BOARD_WIDTH, rng);
+  return Array.from({ length: BOARD_WIDTH }, (_, i) => (i === filledAt ? randomColor(rng) : 0));
+}
+
+function clearCompleteRows(board: Board): { board: Board; lines: number } {
+  const kept = board.filter((row) => !row.every((cell) => cell !== 0));
+  const lines = BOARD_HEIGHT - kept.length;
+  while (kept.length < BOARD_HEIGHT) {
+    kept.unshift(Array.from({ length: BOARD_WIDTH }, () => 0));
+  }
+  return { board: kept, lines };
+}
+
+function randomBombFromRng(rng: () => number): BombType {
+  return ALL_BOMBS[randomInt(ALL_BOMBS.length, rng)]!;
+}
+
 export function applyBombEffect(
   bomb: BombType,
   user: PlayerState,
@@ -89,14 +114,12 @@ export function applyBombEffect(
 
   switch (bomb) {
     case "A": {
-      const hole = randomInt(BOARD_WIDTH, rng);
       nextTarget.board.shift();
-      nextTarget.board.push(Array.from({ length: BOARD_WIDTH }, (_, i) => (i === hole ? 0 : 8)));
+      nextTarget.board.push(randomGarbageLine(rng));
       break;
     }
     case "N": {
-      const row = randomInt(BOARD_HEIGHT, rng);
-      nextTarget.board[row] = Array.from({ length: BOARD_WIDTH }, () => 0);
+      nextTarget.board = createEmptyBoard();
       break;
     }
     case "S": {
@@ -124,7 +147,10 @@ export function applyBombEffect(
           break;
         }
       }
-      if (found >= 0) nextTarget.board[found] = Array.from({ length: BOARD_WIDTH }, () => 0);
+      if (found >= 0) {
+        nextTarget.board.splice(found, 1);
+        nextTarget.board.unshift(Array.from({ length: BOARD_WIDTH }, () => 0));
+      }
       break;
     }
     case "R": {
@@ -136,14 +162,37 @@ export function applyBombEffect(
       break;
     }
     case "B": {
-      const centerRow = randomInt(BOARD_HEIGHT, rng);
-      const centerCol = randomInt(BOARD_WIDTH, rng);
+      const occupied: Array<[number, number]> = [];
+      for (let r = 0; r < BOARD_HEIGHT; r += 1) {
+        for (let c = 0; c < BOARD_WIDTH; c += 1) {
+          if (nextTarget.board[r][c] !== 0) occupied.push([r, c]);
+        }
+      }
+      let centerRow = randomInt(BOARD_HEIGHT, rng);
+      let centerCol = randomInt(BOARD_WIDTH, rng);
+      if (occupied.length > 0) {
+        const [r, c] = occupied[randomInt(occupied.length, rng)]!;
+        centerRow = r;
+        centerCol = c;
+      }
       for (let r = centerRow - 1; r <= centerRow + 1; r += 1) {
         for (let c = centerCol - 1; c <= centerCol + 1; c += 1) {
           if (r >= 0 && r < BOARD_HEIGHT && c >= 0 && c < BOARD_WIDTH) {
             nextTarget.board[r][c] = 0;
           }
         }
+      }
+      break;
+    }
+    case "D": {
+      const rowsWithBlocks: number[] = [];
+      for (let row = 0; row < BOARD_HEIGHT; row += 1) {
+        if (nextTarget.board[row].some((c) => c !== 0)) rowsWithBlocks.push(row);
+      }
+      if (rowsWithBlocks.length > 0) {
+        const rowToDelete = rowsWithBlocks[randomInt(rowsWithBlocks.length, rng)]!;
+        nextTarget.board.splice(rowToDelete, 1);
+        nextTarget.board.unshift(Array.from({ length: BOARD_WIDTH }, () => 0));
       }
       break;
     }
@@ -166,8 +215,21 @@ export function useBomb(
   if (user.bombQueue.length === 0) return { match, consumed: false, reason: "empty-queue" };
 
   const [bomb, ...rest] = user.bombQueue;
-  const { user: nextUser, target: nextTarget } = applyBombEffect(bomb, user, target, rng);
-  const consumedUser: PlayerState = { ...nextUser, bombQueue: rest, bombsUsed: user.bombsUsed + 1 };
+  const { user: nextUser, target: rawTarget } = applyBombEffect(bomb, user, target, rng);
+  let nextTarget = rawTarget;
+
+  if (bomb === "G") {
+    const cleared = clearCompleteRows(nextTarget.board);
+    nextTarget.board = cleared.board;
+    if (cleared.lines > 0) {
+      nextTarget = awardBombs(nextTarget, cleared.lines, () => randomBombFromRng(rng));
+    }
+  }
+
+  const consumedUser: PlayerState =
+    targetId === userId
+      ? { ...nextTarget, bombQueue: rest, bombsUsed: user.bombsUsed + 1 }
+      : { ...nextUser, bombQueue: rest, bombsUsed: user.bombsUsed + 1 };
 
   return {
     consumed: true,

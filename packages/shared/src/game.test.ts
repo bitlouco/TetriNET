@@ -54,13 +54,16 @@ describe("bomb queue rules", () => {
 describe("bomb effects", () => {
   it("supports self-target and consumes on valid target", () => {
     let match = createMatch("m2", "u1", "u1");
-    match.players.u1.bombQueue = ["Q"];
+    match.players.u1.bombQueue = ["A"];
     match.players.u1.board[BOARD_HEIGHT - 1][0] = 1;
 
-    const result = useBomb(match, "u1", "u1", rngSeq([0.9])); // shift +3
+    const beforeOccupied = match.players.u1.board.flat().filter((cell) => cell !== 0).length;
+    const result = useBomb(match, "u1", "u1", rngSeq([0.2, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]));
+    const afterOccupied = result.match.players.u1.board.flat().filter((cell) => cell !== 0).length;
     expect(result.consumed).toBe(true);
     expect(result.match.players.u1.bombQueue.length).toBe(0);
     expect(result.match.players.u1.bombsUsed).toBe(1);
+    expect(afterOccupied).toBeGreaterThan(beforeOccupied);
   });
 
   it("quake shifts rows horizontally immediately", () => {
@@ -87,5 +90,101 @@ describe("bomb effects", () => {
     const result = useBomb(match, "u1", "u2");
     expect(result.match.players.u1.board[BOARD_HEIGHT - 1][BOARD_WIDTH - 1]).toBe(9);
     expect(result.match.players.u2.board[BOARD_HEIGHT - 1][0]).toBe(7);
+  });
+
+  it("nuke clears full target board", () => {
+    let match = createMatch("m5", "u1", "u1");
+    match.players.u2 = createPlayer("u2", "u2");
+    match.order.push("u2");
+    match.players.u1.bombQueue = ["N"];
+    match.players.u2.board[BOARD_HEIGHT - 1][0] = 4;
+    match.players.u2.board[BOARD_HEIGHT - 2][1] = 6;
+
+    const result = useBomb(match, "u1", "u2");
+    expect(result.consumed).toBe(true);
+    const occupied = result.match.players.u2.board.flat().filter((cell) => cell !== 0).length;
+    expect(occupied).toBe(0);
+  });
+
+  it("clear line removes first occupied row and drops above rows down", () => {
+    let match = createMatch("m6", "u1", "u1");
+    match.players.u2 = createPlayer("u2", "u2");
+    match.order.push("u2");
+    match.players.u1.bombQueue = ["C"];
+
+    match.players.u2.board[BOARD_HEIGHT - 3][0] = 2;
+    match.players.u2.board[BOARD_HEIGHT - 2][1] = 3;
+    match.players.u2.board[BOARD_HEIGHT - 1][2] = 4;
+
+    const result = useBomb(match, "u1", "u2");
+    expect(result.consumed).toBe(true);
+    expect(result.match.players.u2.board[BOARD_HEIGHT - 1][2]).toBe(0);
+    expect(result.match.players.u2.board[BOARD_HEIGHT - 1][1]).toBe(3);
+    expect(result.match.players.u2.board[BOARD_HEIGHT - 2][0]).toBe(2);
+  });
+
+  it("block bomb targets an occupied area when possible", () => {
+    let match = createMatch("m7", "u1", "u1");
+    match.players.u2 = createPlayer("u2", "u2");
+    match.order.push("u2");
+    match.players.u1.bombQueue = ["B"];
+    match.players.u2.board[10][4] = 6;
+
+    const result = useBomb(match, "u1", "u2", rngSeq([0]));
+    expect(result.consumed).toBe(true);
+    expect(result.match.players.u2.board[10][4]).toBe(0);
+  });
+
+  it("gravity clears completed rows and awards bombs to target as own clear", () => {
+    let match = createMatch("m8", "u1", "u1");
+    match.players.u2 = createPlayer("u2", "u2");
+    match.order.push("u2");
+    match.players.u1.bombQueue = ["G"];
+
+    match.players.u2.board[BOARD_HEIGHT - 1] = Array.from({ length: BOARD_WIDTH }, () => 3);
+    match.players.u2.board[BOARD_HEIGHT - 2] = Array.from({ length: BOARD_WIDTH }, () => 4);
+
+    const beforeLines = match.players.u2.linesCleared;
+    const result = useBomb(match, "u1", "u2", rngSeq([0]));
+
+    expect(result.consumed).toBe(true);
+    expect(result.match.players.u2.linesCleared).toBe(beforeLines + 2);
+    expect(result.match.players.u2.bombQueue.length).toBe(1);
+    expect(result.match.players.u2.board[BOARD_HEIGHT - 1].every((cell) => cell === 0)).toBe(true);
+  });
+
+  it("random clear performs random attempts without creating blocks", () => {
+    let match = createMatch("m9", "u1", "u1");
+    match.players.u2 = createPlayer("u2", "u2");
+    match.order.push("u2");
+    match.players.u1.bombQueue = ["R"];
+
+    for (let i = 0; i < 10; i += 1) {
+      match.players.u2.board[BOARD_HEIGHT - 1][i] = 7;
+    }
+
+    const before = match.players.u2.board.flat().filter((cell) => cell !== 0).length;
+    const result = useBomb(match, "u1", "u2", rngSeq([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+    const after = result.match.players.u2.board.flat().filter((cell) => cell !== 0).length;
+
+    expect(result.consumed).toBe(true);
+    expect(after).toBeLessThanOrEqual(before);
+  });
+
+  it("delete line removes a random occupied row and drops above rows down", () => {
+    let match = createMatch("m10", "u1", "u1");
+    match.players.u2 = createPlayer("u2", "u2");
+    match.order.push("u2");
+    match.players.u1.bombQueue = ["D"];
+
+    match.players.u2.board[BOARD_HEIGHT - 3][0] = 2;
+    match.players.u2.board[BOARD_HEIGHT - 2][1] = 3;
+    match.players.u2.board[BOARD_HEIGHT - 1][2] = 4;
+
+    const result = useBomb(match, "u1", "u2", rngSeq([0.99]));
+    expect(result.consumed).toBe(true);
+    expect(result.match.players.u2.board[BOARD_HEIGHT - 1][2]).toBe(0);
+    expect(result.match.players.u2.board[BOARD_HEIGHT - 1][1]).toBe(3);
+    expect(result.match.players.u2.board[BOARD_HEIGHT - 2][0]).toBe(2);
   });
 });

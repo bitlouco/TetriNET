@@ -195,6 +195,27 @@ function drawMiniPiece(ctx, type, left, top) {
   }
 }
 
+function reconcileCurrentPiece(board, piece) {
+  if (!piece) return { piece, ok: true };
+  if (canPlace(board, piece)) return { piece, ok: true };
+
+  // Try lifting current piece upward first, preserving type/rotation/x.
+  for (let dy = 1; dy <= ROWS; dy += 1) {
+    const candidate = { ...piece, y: piece.y - dy };
+    if (canPlace(board, candidate)) return { piece: candidate, ok: true };
+  }
+
+  // Fallback: same piece type in spawn area with multiple rotations/x positions.
+  for (let rotation = 0; rotation < 4; rotation += 1) {
+    for (let x = -2; x < COLS; x += 1) {
+      const candidate = { ...piece, rotation, x, y: VISIBLE_START_ROW };
+      if (canPlace(board, candidate)) return { piece: candidate, ok: true };
+    }
+  }
+
+  return { piece, ok: false };
+}
+
 export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState }) {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas2D indisponivel");
@@ -248,7 +269,8 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
       gameOver: state.gameOver,
       pieceType: state.current ? state.current.type : "-",
       nextType: next,
-      board: boardWithCurrent
+      board: boardWithCurrent,
+      syncBoard: state.board.map((row) => [...row])
     });
   }
 
@@ -369,21 +391,45 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
     return out;
   }
 
-  function applyBomb(bomb) {
+  function applyBomb(bomb, targetBoard = null) {
     if (state.gameOver) return;
+
+    if (targetBoard) {
+      state.board = targetBoard.map((row) => [...row]);
+      const reconciled = reconcileCurrentPiece(state.board, state.current);
+      state.current = reconciled.piece;
+      if (!reconciled.ok) {
+        if (bomb === "S") {
+          // Switch rule: if active piece becomes invalid, discard it and continue.
+          state.lockMs = 0;
+          state.gravityMs = 0;
+          spawnPiece();
+        } else {
+          state.gameOver = true;
+          onGameOver?.();
+        }
+      }
+      render();
+      emitState();
+      return;
+    }
 
     const board = state.board.map((row) => [...row]);
 
     switch (bomb) {
       case "A": {
-        const hole = Math.floor(Math.random() * COLS);
         board.shift();
-        board.push(Array.from({ length: COLS }, (_, i) => (i === hole ? 0 : 8)));
+        const line = Array.from({ length: COLS }, () => (Math.random() < 0.35 ? 0 : Math.floor(Math.random() * 7) + 1));
+        if (line.every((cell) => cell === 0)) {
+          line[Math.floor(Math.random() * COLS)] = Math.floor(Math.random() * 7) + 1;
+        }
+        board.push(line);
         break;
       }
       case "N": {
-        const row = Math.floor(Math.random() * ROWS);
-        board[row] = Array.from({ length: COLS }, () => 0);
+        for (let y = 0; y < ROWS; y += 1) {
+          board[y] = Array.from({ length: COLS }, () => 0);
+        }
         break;
       }
       case "Q": {
@@ -426,8 +472,19 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
         }
         break;
       }
+      case "D": {
+        const rowsWithBlocks = [];
+        for (let row = 0; row < ROWS; row += 1) {
+          if (board[row].some((cell) => cell !== 0)) rowsWithBlocks.push(row);
+        }
+        if (rowsWithBlocks.length > 0) {
+          const rowToDelete = rowsWithBlocks[Math.floor(Math.random() * rowsWithBlocks.length)];
+          board.splice(rowToDelete, 1);
+          board.unshift(Array.from({ length: COLS }, () => 0));
+        }
+        break;
+      }
       case "S": {
-        // Switch depende de sincronizacao de dois campos autoritativos; fica para milestone 2.
         return;
       }
       default:
@@ -438,9 +495,18 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
       state.board = board;
     }
 
-    if (state.current && !canPlace(state.board, state.current)) {
-      state.gameOver = true;
-      onGameOver?.();
+    const reconciled = reconcileCurrentPiece(state.board, state.current);
+    state.current = reconciled.piece;
+    if (!reconciled.ok) {
+      if (bomb === "S") {
+        // Switch rule: discard invalid active piece instead of instant elimination.
+        state.lockMs = 0;
+        state.gravityMs = 0;
+        spawnPiece();
+      } else {
+        state.gameOver = true;
+        onGameOver?.();
+      }
     }
 
     render();

@@ -17,14 +17,14 @@ Motivo:
 ## 2026-03-14 - Bomba S (Switch) no loop local temporario
 
 Contexto:
-- Com o cliente ainda nao autoritativo para board completo, o servidor nao possui estado suficiente para trocar campos reais em tempo real no Milestone 1.
+- O servidor ja processa Switch de forma autoritativa no estado da sala.
 
-Implementacao minima adotada:
-- Evento de bomba aplicado no cliente para A, N, Q, G, C, R e B quando o jogador e alvo.
-- Para S (Switch), o efeito local fica desativado temporariamente ate a sincronizacao autoritativa do Milestone 2.
+Implementacao adotada:
+- O evento `bombUsed` agora carrega `targetBoard` autoritativo.
+- Quando o cliente e alvo, aplica esse board recebido mantendo a peca atualmente em queda.
 
 Motivo:
-- Evita comportamento incorreto de troca parcial de campo entre clientes nao sincronizados.
+- Garante comportamento correto de troca de campo sem perder a continuidade da peca ativa.
 
 ## 2026-03-14 - Limitacao de abas inativas no Milestone 1
 
