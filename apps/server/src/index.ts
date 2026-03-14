@@ -1,7 +1,8 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import {
@@ -14,7 +15,8 @@ import {
 } from "@tetrinet/shared";
 
 const PORT = Number(process.env.PORT ?? 8080);
-const WEB_ROOT = join(process.cwd(), "apps/web");
+const SERVER_DIR = fileURLToPath(new URL(".", import.meta.url));
+const WEB_ROOT = resolve(SERVER_DIR, "../../web");
 
 type Client = {
   id: string;
