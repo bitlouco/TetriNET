@@ -7,9 +7,12 @@ import { WebSocketServer } from "ws";
 import { z } from "zod";
 import {
   awardBombs,
+  BOARD_HEIGHT,
+  BOARD_WIDTH,
   createMatch,
   createPlayer,
   useBomb,
+  type Board,
   type BombType,
   type MatchState
 } from "@tetrinet/shared";
@@ -32,6 +35,19 @@ const joinSchema = z.object({ type: z.literal("join"), roomId: z.string(), playe
 const startSchema = z.object({ type: z.literal("start"), roomId: z.string(), playerId: z.string() });
 const lineClearSchema = z.object({ type: z.literal("lineClear"), roomId: z.string(), playerId: z.string(), lines: z.number().int().min(1).max(4) });
 const bombSchema = z.object({ type: z.literal("useBomb"), roomId: z.string(), playerId: z.string(), targetId: z.string() });
+const boardSyncSchema = z.object({
+  type: z.literal("boardSync"),
+  roomId: z.string(),
+  playerId: z.string(),
+  board: z.array(z.array(z.number()))
+});
+const gameOverSchema = z.object({ type: z.literal("gameOver"), roomId: z.string(), playerId: z.string() });
+
+function createEliminatedBoard(): Board {
+  return Array.from({ length: BOARD_HEIGHT }, (_, y) =>
+    Array.from({ length: BOARD_WIDTH }, (_, x) => ((x + y) % 7) + 1)
+  );
+}
 
 function randomBomb(): BombType {
   const all: BombType[] = ["A", "N", "S", "Q", "G", "C", "R", "B"];
@@ -133,6 +149,29 @@ wss.on("connection", (socket) => {
       const p = room.players[lineClear.data.playerId];
       if (!p || !p.active) return;
       room.players[lineClear.data.playerId] = awardBombs(p, lineClear.data.lines, randomBomb);
+      broadcastRoom(room);
+      return;
+    }
+
+    const boardSync = boardSyncSchema.safeParse(parsed);
+    if (boardSync.success) {
+      const room = rooms.get(boardSync.data.roomId);
+      if (!room) return;
+      const p = room.players[boardSync.data.playerId];
+      if (!p || !p.active) return;
+      p.board = boardSync.data.board as Board;
+      broadcastRoom(room);
+      return;
+    }
+
+    const gameOver = gameOverSchema.safeParse(parsed);
+    if (gameOver.success) {
+      const room = rooms.get(gameOver.data.roomId);
+      if (!room) return;
+      const p = room.players[gameOver.data.playerId];
+      if (!p) return;
+      p.active = false;
+      p.board = createEliminatedBoard();
       broadcastRoom(room);
       return;
     }

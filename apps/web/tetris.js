@@ -6,6 +6,7 @@ const BOARD_PIXEL_WIDTH = COLS * CELL;
 const BOARD_PIXEL_HEIGHT = (ROWS - VISIBLE_START_ROW) * CELL;
 const LOCK_DELAY_MS = 500;
 const SOFT_DROP_MS = 40;
+const BACKGROUND_TICK_MS = 100;
 
 const COLORS = {
   I: "#40e0ff",
@@ -213,7 +214,9 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
     softDrop: false,
     running: false,
     frameId: 0,
-    lastTs: 0
+    lastTs: 0,
+    backgroundTimer: 0,
+    backgroundLastTs: 0
   };
 
   function refillBagIfNeeded() {
@@ -232,7 +235,7 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
   function nextPiece() {
     ensureQueue();
     const type = state.queue.shift();
-    return { type, rotation: 0, x: 3, y: 0 };
+    return { type, rotation: 0, x: 3, y: VISIBLE_START_ROW };
   }
 
   function emitState() {
@@ -514,8 +517,12 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
 
   function frame(ts) {
     if (!state.running) return;
+    if (document.hidden) {
+      state.frameId = requestAnimationFrame(frame);
+      return;
+    }
     const last = state.lastTs || ts;
-    const delta = ts - last;
+    const delta = Math.min(100, ts - last);
     state.lastTs = ts;
 
     update(delta);
@@ -523,6 +530,36 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
     emitState();
 
     state.frameId = requestAnimationFrame(frame);
+  }
+
+  function startBackgroundLoop() {
+    if (state.backgroundTimer) return;
+    state.backgroundLastTs = performance.now();
+    state.backgroundTimer = window.setInterval(() => {
+      if (!state.running || !document.hidden) return;
+      const now = performance.now();
+      const delta = Math.min(1000, now - state.backgroundLastTs);
+      state.backgroundLastTs = now;
+      update(delta);
+      emitState();
+    }, BACKGROUND_TICK_MS);
+  }
+
+  function stopBackgroundLoop() {
+    if (!state.backgroundTimer) return;
+    clearInterval(state.backgroundTimer);
+    state.backgroundTimer = 0;
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) {
+      startBackgroundLoop();
+      return;
+    }
+    stopBackgroundLoop();
+    state.lastTs = performance.now();
+    render();
+    emitState();
   }
 
   function onKeyDown(event) {
@@ -584,14 +621,18 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
     restart();
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (document.hidden) startBackgroundLoop();
     state.frameId = requestAnimationFrame(frame);
   }
 
   function stop() {
     state.running = false;
     cancelAnimationFrame(state.frameId);
+    stopBackgroundLoop();
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
   }
 
   return {

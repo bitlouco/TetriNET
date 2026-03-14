@@ -25,3 +25,16 @@ Implementacao minima adotada:
 
 Motivo:
 - Evita comportamento incorreto de troca parcial de campo entre clientes nao sincronizados.
+
+## 2026-03-14 - Limitacao de abas inativas no Milestone 1
+
+Contexto:
+- O loop do jogo ainda e cliente-local por aba.
+- Navegadores podem reduzir fortemente timers ou suspender abas em segundo plano por politicas de economia de recursos.
+
+Impacto observado:
+- Em sessoes longas, um jogador em aba muito tempo inativa pode parar de atualizar temporariamente seu campo para os demais.
+- Ao reativar a aba, a sincronizacao retoma.
+
+Direcao:
+- Tratar de forma definitiva no Milestone 2 com simulacao autoritativa no servidor.

@@ -22,6 +22,8 @@ const canvas = document.getElementById("tetrisCanvas");
 let ws;
 let state;
 let localBoard = null;
+let lastBoardSyncAt = 0;
+const BOARD_SYNC_INTERVAL_MS = 33;
 
 const suffix = (crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)).slice(0, 5);
 const playerId = `jogador-${suffix}`;
@@ -44,6 +46,16 @@ const CELL_COLORS = {
   6: "#6ea0ff",
   7: "#ffb35f",
   8: "#999999"
+};
+
+const PIECE_TO_ID = {
+  I: 1,
+  O: 2,
+  T: 3,
+  S: 4,
+  Z: 5,
+  J: 6,
+  L: 7
 };
 
 function log(message, type = "ok") {
@@ -125,7 +137,7 @@ function renderRoomBoards(room) {
 
     const boardCanvas = document.createElement("canvas");
     wrapper.appendChild(boardCanvas);
-    const board = p ? (id === playerId && localBoard ? localBoard : p.board) : null;
+    const board = p ? (id === playerId && p.active && localBoard ? localBoard : p.board) : null;
     drawBoardOnCanvas(boardCanvas, board);
 
     roomBoardsEl.appendChild(wrapper);
@@ -136,6 +148,15 @@ function renderEmptyRoomBoards() {
   renderRoomBoards({ order: [], players: {} });
 }
 
+function encodeBoardForSync(board) {
+  return (board ?? []).map((row) =>
+    row.map((cell) => {
+      if (typeof cell === "number") return cell;
+      return PIECE_TO_ID[cell] ?? 0;
+    })
+  );
+}
+
 function updateHud(snapshot) {
   gameStatusEl.textContent = snapshot.gameOver ? "game over" : "running";
   linesCountEl.textContent = String(snapshot.lines);
@@ -144,6 +165,17 @@ function updateHud(snapshot) {
   pieceTypeEl.textContent = snapshot.pieceType;
   nextTypeEl.textContent = snapshot.nextType;
   localBoard = snapshot.board;
+
+  const now = Date.now();
+  if (now - lastBoardSyncAt >= BOARD_SYNC_INTERVAL_MS) {
+    sendIfConnected({
+      type: "boardSync",
+      roomId: ROOM_ID,
+      playerId,
+      board: encodeBoardForSync(snapshot.board)
+    });
+    lastBoardSyncAt = now;
+  }
 
   if (state) renderRoomBoards(state);
 }
@@ -159,7 +191,14 @@ const tetris = createLocalTetris({
       lines
     });
   },
-  onGameOver: () => log("Partida local finalizada (game over)", "warn"),
+  onGameOver: () => {
+    log("Partida local finalizada (game over)", "warn");
+    sendIfConnected({
+      type: "gameOver",
+      roomId: ROOM_ID,
+      playerId
+    });
+  },
   onState: updateHud
 });
 
