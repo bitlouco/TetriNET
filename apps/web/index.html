@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TetriNET Web - Teste MVP</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #111; color: #eee; margin: 0; padding: 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    input, button, select { padding: 8px; border-radius: 6px; border: 1px solid #444; background: #1f1f1f; color: #eee; }
+    button { cursor: pointer; }
+    .panel { background: #1b1b1b; border: 1px solid #333; border-radius: 10px; padding: 12px; }
+    #players { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+    .player { background: #222; border-radius: 8px; padding: 8px; }
+    #log { height: 160px; overflow: auto; white-space: pre-wrap; background: #000; padding: 8px; border-radius: 8px; }
+    .ok { color: #71ff8a; }
+    .warn { color: #ffd166; }
+  </style>
+</head>
+<body>
+  <h1>TetriNET Web — Cliente de Teste MVP</h1>
+
+  <div class="panel row">
+    <input id="roomId" placeholder="Sala" value="sala-1" />
+    <input id="playerId" placeholder="Seu ID" value="jogador-1" />
+    <input id="name" placeholder="Nome" value="Jogador 1" />
+    <button id="joinBtn">Entrar</button>
+    <button id="startBtn">Iniciar (líder)</button>
+  </div>
+
+  <div class="panel">
+    <h3>Gerar bombas (simulação lineClear)</h3>
+    <div class="row">
+      <button data-lines="1">+1 linha (0 bomba)</button>
+      <button data-lines="2">+2 linhas (1 bomba)</button>
+      <button data-lines="3">+3 linhas (2 bombas)</button>
+      <button data-lines="4">+4 linhas (3 bombas)</button>
+    </div>
+  </div>
+
+  <div class="panel row">
+    <label>Alvo:
+      <select id="target"></select>
+    </label>
+    <button id="useBombBtn">Usar próxima bomba</button>
+  </div>
+
+  <div class="panel">
+    <h3>Jogadores</h3>
+    <div id="players"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Log</h3>
+    <div id="log"></div>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
