@@ -1,14 +1,14 @@
 ﻿import { createLocalTetris } from "./tetris.js";
 
-const roomIdInput = document.getElementById("roomId");
-const playerIdInput = document.getElementById("playerId");
-const nameInput = document.getElementById("name");
-const joinBtn = document.getElementById("joinBtn");
+const ROOM_ID = "sala-1";
+
 const startBtn = document.getElementById("startBtn");
+const playerLabel = document.getElementById("playerLabel");
 const targetSelect = document.getElementById("target");
 const useBombBtn = document.getElementById("useBombBtn");
 const restartBtn = document.getElementById("restartBtn");
 const playersEl = document.getElementById("players");
+const roomBoardsEl = document.getElementById("roomBoards");
 const logEl = document.getElementById("log");
 
 const gameStatusEl = document.getElementById("gameStatus");
@@ -21,6 +21,30 @@ const canvas = document.getElementById("tetrisCanvas");
 
 let ws;
 let state;
+let localBoard = null;
+
+const suffix = (crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)).slice(0, 5);
+const playerId = `jogador-${suffix}`;
+const playerName = `Jogador ${suffix}`;
+playerLabel.textContent = `${playerName} (${playerId})`;
+
+const CELL_COLORS = {
+  I: "#40e0ff",
+  O: "#ffe14a",
+  T: "#b16cff",
+  S: "#56f281",
+  Z: "#ff6677",
+  J: "#6ea0ff",
+  L: "#ffb35f",
+  1: "#40e0ff",
+  2: "#ffe14a",
+  3: "#b16cff",
+  4: "#56f281",
+  5: "#ff6677",
+  6: "#6ea0ff",
+  7: "#ffb35f",
+  8: "#999999"
+};
 
 function log(message, type = "ok") {
   const line = document.createElement("div");
@@ -42,6 +66,76 @@ function sendIfConnected(payload) {
   ws.send(JSON.stringify(payload));
 }
 
+function drawBoardOnCanvas(canvasEl, board) {
+  const ctx = canvasEl.getContext("2d");
+  if (!ctx) return;
+
+  const cols = 10;
+  const hiddenRows = 2;
+  const rows = 20;
+  const cell = 12;
+
+  canvasEl.width = cols * cell;
+  canvasEl.height = rows * cell;
+
+  ctx.fillStyle = "#0a0a0a";
+  ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
+
+  for (let y = hiddenRows; y < hiddenRows + rows; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
+      const value = board?.[y]?.[x] ?? 0;
+      if (value === 0) continue;
+      const color = CELL_COLORS[value] ?? "#888";
+      ctx.fillStyle = color;
+      ctx.fillRect(x * cell + 1, (y - hiddenRows) * cell + 1, cell - 2, cell - 2);
+    }
+  }
+
+  ctx.strokeStyle = "#1f1f1f";
+  for (let x = 0; x <= cols; x += 1) {
+    ctx.beginPath();
+    ctx.moveTo(x * cell + 0.5, 0);
+    ctx.lineTo(x * cell + 0.5, rows * cell);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= rows; y += 1) {
+    ctx.beginPath();
+    ctx.moveTo(0, y * cell + 0.5);
+    ctx.lineTo(cols * cell, y * cell + 0.5);
+    ctx.stroke();
+  }
+}
+
+function renderRoomBoards(room) {
+  roomBoardsEl.innerHTML = "";
+
+  for (let index = 0; index < 6; index += 1) {
+    const id = room.order[index];
+    const p = id ? room.players[id] : null;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "room-board";
+    if (!p) wrapper.classList.add("inactive");
+
+    const title = document.createElement("h4");
+    title.textContent = p
+      ? `${index + 1}. ${p.name}${id === playerId ? " (voce)" : ""}`
+      : `${index + 1}. Vazio`;
+    wrapper.appendChild(title);
+
+    const boardCanvas = document.createElement("canvas");
+    wrapper.appendChild(boardCanvas);
+    const board = p ? (id === playerId && localBoard ? localBoard : p.board) : null;
+    drawBoardOnCanvas(boardCanvas, board);
+
+    roomBoardsEl.appendChild(wrapper);
+  }
+}
+
+function renderEmptyRoomBoards() {
+  renderRoomBoards({ order: [], players: {} });
+}
+
 function updateHud(snapshot) {
   gameStatusEl.textContent = snapshot.gameOver ? "game over" : "running";
   linesCountEl.textContent = String(snapshot.lines);
@@ -49,6 +143,9 @@ function updateHud(snapshot) {
   levelCountEl.textContent = String(snapshot.level);
   pieceTypeEl.textContent = snapshot.pieceType;
   nextTypeEl.textContent = snapshot.nextType;
+  localBoard = snapshot.board;
+
+  if (state) renderRoomBoards(state);
 }
 
 const tetris = createLocalTetris({
@@ -57,8 +154,8 @@ const tetris = createLocalTetris({
     log(`Loop local: ${lines} linha(s) limpas`);
     sendIfConnected({
       type: "lineClear",
-      roomId: roomIdInput.value,
-      playerId: playerIdInput.value,
+      roomId: ROOM_ID,
+      playerId,
       lines
     });
   },
@@ -83,21 +180,23 @@ function renderRoom(room) {
 
     const opt = document.createElement("option");
     opt.value = id;
-    opt.textContent = `${index + 1}. ${p.name}${p.id === playerIdInput.value ? " (voce)" : ""}`;
+    opt.textContent = `${index + 1}. ${p.name}${p.id === playerId ? " (voce)" : ""}`;
     targetSelect.appendChild(opt);
   });
+
+  renderRoomBoards(room);
 }
 
-joinBtn.addEventListener("click", () => {
+function connectWebSocket() {
   ws = new WebSocket(`ws://${location.host}/ws`);
 
   ws.onopen = () => {
     log("Conectado ao servidor");
     send({
       type: "join",
-      roomId: roomIdInput.value,
-      playerId: playerIdInput.value,
-      name: nameInput.value
+      roomId: ROOM_ID,
+      playerId,
+      name: playerName
     });
   };
 
@@ -113,21 +212,27 @@ joinBtn.addEventListener("click", () => {
     if (msg.type === "error") {
       log(msg.message, "warn");
     }
+    if (msg.type === "bombUsed") {
+      if (msg.targetId === playerId) {
+        tetris.applyBomb(msg.bomb);
+        log(`Bomba recebida: ${msg.bomb} (de ${msg.userId})`, "warn");
+      }
+    }
   };
 
   ws.onclose = () => log("Conexao encerrada", "warn");
-});
+}
 
 startBtn.addEventListener("click", () => {
-  send({ type: "start", roomId: roomIdInput.value, playerId: playerIdInput.value });
+  send({ type: "start", roomId: ROOM_ID, playerId });
 });
 
 for (const btn of document.querySelectorAll("button[data-lines]")) {
   btn.addEventListener("click", () => {
     send({
       type: "lineClear",
-      roomId: roomIdInput.value,
-      playerId: playerIdInput.value,
+      roomId: ROOM_ID,
+      playerId,
       lines: Number(btn.dataset.lines)
     });
   });
@@ -137,10 +242,12 @@ useBombBtn.addEventListener("click", () => {
   const targetId = targetSelect.value;
   send({
     type: "useBomb",
-    roomId: roomIdInput.value,
-    playerId: playerIdInput.value,
+    roomId: ROOM_ID,
+    playerId,
     targetId
   });
 });
 
-log("Loop local de Tetris ativo. Abra 2 abas para testar multiplayer.");
+connectWebSocket();
+renderEmptyRoomBoards();
+log("Loop local de Tetris ativo. Sala fixa conectada automaticamente.");

@@ -15,6 +15,11 @@
     #tetrisCanvas { background: #080808; border: 1px solid #333; border-radius: 8px; }
     .hud { min-width: 220px; font-size: 14px; line-height: 1.4; }
     .hud code { color: #9ad6ff; }
+    #roomBoards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .room-board { background: #222; border-radius: 8px; padding: 8px; border: 1px solid #333; }
+    .room-board h4 { margin: 0 0 6px 0; font-size: 14px; }
+    .room-board canvas { width: 100%; height: auto; background: #090909; border: 1px solid #333; }
+    .room-board.inactive { opacity: 0.45; }
     #players { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
     .player { background: #222; border-radius: 8px; padding: 8px; }
     #log { height: 160px; overflow: auto; white-space: pre-wrap; background: #000; padding: 8px; border-radius: 8px; }
@@ -52,10 +57,8 @@
   </div>
 
   <div class="panel row">
-    <input id="roomId" placeholder="Sala" value="sala-1" />
-    <input id="playerId" placeholder="Seu ID" value="jogador-1" />
-    <input id="name" placeholder="Nome" value="Jogador 1" />
-    <button id="joinBtn">Entrar</button>
+    <div>Sala fixa: <strong>sala-1</strong></div>
+    <div>Jogador: <strong id="playerLabel">-</strong></div>
     <button id="startBtn">Iniciar (lider)</button>
   </div>
 
@@ -79,6 +82,11 @@
   <div class="panel">
     <h3>Jogadores</h3>
     <div id="players"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Campos da sala</h3>
+    <div id="roomBoards"></div>
   </div>
 
   <div class="panel">

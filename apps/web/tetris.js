@@ -176,12 +176,6 @@ function gravityInterval(elapsedMs) {
   return Math.max(120, 1000 - steps * 80);
 }
 
-function ghostY(board, piece) {
-  let y = piece.y;
-  while (canPlace(board, { ...piece, y: y + 1 })) y += 1;
-  return y;
-}
-
 function drawCell(ctx, x, y, color, alpha = 1) {
   if (y < VISIBLE_START_ROW) return;
   const drawX = x * CELL;
@@ -243,13 +237,15 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
 
   function emitState() {
     const next = state.queue[0] ?? "-";
+    const boardWithCurrent = state.current ? merge(state.board, state.current) : state.board;
     onState?.({
       lines: state.lines,
       score: state.score,
       level: state.level,
       gameOver: state.gameOver,
       pieceType: state.current ? state.current.type : "-",
-      nextType: next
+      nextType: next,
+      board: boardWithCurrent
     });
   }
 
@@ -347,6 +343,107 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
     }
   }
 
+  function compactGravity(board) {
+    const out = createBoard();
+    for (let col = 0; col < COLS; col += 1) {
+      const stack = [];
+      for (let row = ROWS - 1; row >= 0; row -= 1) {
+        if (board[row][col] !== 0) stack.push(board[row][col]);
+      }
+      for (let row = ROWS - 1, i = 0; i < stack.length; row -= 1, i += 1) {
+        out[row][col] = stack[i];
+      }
+    }
+    return out;
+  }
+
+  function shiftRow(row, amount) {
+    const out = Array.from({ length: row.length }, () => 0);
+    for (let i = 0; i < row.length; i += 1) {
+      const next = i + amount;
+      if (next >= 0 && next < row.length) out[next] = row[i];
+    }
+    return out;
+  }
+
+  function applyBomb(bomb) {
+    if (state.gameOver) return;
+
+    const board = state.board.map((row) => [...row]);
+
+    switch (bomb) {
+      case "A": {
+        const hole = Math.floor(Math.random() * COLS);
+        board.shift();
+        board.push(Array.from({ length: COLS }, (_, i) => (i === hole ? 0 : 8)));
+        break;
+      }
+      case "N": {
+        const row = Math.floor(Math.random() * ROWS);
+        board[row] = Array.from({ length: COLS }, () => 0);
+        break;
+      }
+      case "Q": {
+        for (let y = 0; y < ROWS; y += 1) {
+          const amount = Math.floor(Math.random() * 7) - 3;
+          board[y] = shiftRow(board[y], amount);
+        }
+        break;
+      }
+      case "G": {
+        state.board = compactGravity(board);
+        break;
+      }
+      case "C": {
+        for (let y = ROWS - 1; y >= 0; y -= 1) {
+          if (board[y].some((cell) => cell !== 0)) {
+            board[y] = Array.from({ length: COLS }, () => 0);
+            break;
+          }
+        }
+        break;
+      }
+      case "R": {
+        for (let i = 0; i < 12; i += 1) {
+          const row = Math.floor(Math.random() * ROWS);
+          const col = Math.floor(Math.random() * COLS);
+          board[row][col] = 0;
+        }
+        break;
+      }
+      case "B": {
+        const centerRow = Math.floor(Math.random() * ROWS);
+        const centerCol = Math.floor(Math.random() * COLS);
+        for (let r = centerRow - 1; r <= centerRow + 1; r += 1) {
+          for (let c = centerCol - 1; c <= centerCol + 1; c += 1) {
+            if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+              board[r][c] = 0;
+            }
+          }
+        }
+        break;
+      }
+      case "S": {
+        // Switch depende de sincronizacao de dois campos autoritativos; fica para milestone 2.
+        return;
+      }
+      default:
+        return;
+    }
+
+    if (bomb !== "G") {
+      state.board = board;
+    }
+
+    if (state.current && !canPlace(state.board, state.current)) {
+      state.gameOver = true;
+      onGameOver?.();
+    }
+
+    render();
+    emitState();
+  }
+
   function drawBoard() {
     ctx.fillStyle = "#060606";
     ctx.fillRect(0, 0, BOARD_PIXEL_WIDTH, BOARD_PIXEL_HEIGHT);
@@ -362,11 +459,6 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
     }
 
     if (state.current) {
-      const gy = ghostY(state.board, state.current);
-      const ghost = { ...state.current, y: gy };
-      for (const [x, y] of getCells(ghost)) {
-        drawCell(ctx, x, y, COLORS[state.current.type], 0.28);
-      }
       for (const [x, y] of getCells(state.current)) {
         drawCell(ctx, x, y, COLORS[state.current.type], 1);
       }
@@ -423,7 +515,7 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
   function frame(ts) {
     if (!state.running) return;
     const last = state.lastTs || ts;
-    const delta = Math.min(48, ts - last);
+    const delta = ts - last;
     state.lastTs = ts;
 
     update(delta);
@@ -436,7 +528,13 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
   function onKeyDown(event) {
     if (!state.running) return;
 
-    if (event.code === "Space") {
+    if (
+      event.code === "Space" ||
+      event.code === "ArrowUp" ||
+      event.code === "ArrowDown" ||
+      event.code === "ArrowLeft" ||
+      event.code === "ArrowRight"
+    ) {
       event.preventDefault();
     }
 
@@ -499,6 +597,7 @@ export function createLocalTetris({ canvas, onLinesCleared, onGameOver, onState 
   return {
     start,
     stop,
-    restart
+    restart,
+    applyBomb
   };
 }

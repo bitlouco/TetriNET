@@ -141,10 +141,22 @@ wss.on("connection", (socket) => {
     if (bomb.success) {
       const room = rooms.get(bomb.data.roomId);
       if (!room) return;
+      const usedBomb = room.players[bomb.data.playerId]?.bombQueue[0] ?? null;
       const result = useBomb(room, bomb.data.playerId, bomb.data.targetId);
       rooms.set(room.id, result.match);
       broadcastRoom(result.match);
       send(client, { type: "bombResult", consumed: result.consumed, reason: result.reason ?? null });
+      if (result.consumed && usedBomb) {
+        const payload = JSON.stringify({
+          type: "bombUsed",
+          userId: bomb.data.playerId,
+          targetId: bomb.data.targetId,
+          bomb: usedBomb
+        });
+        for (const c of clients.values()) {
+          if (c.roomId === room.id) c.socket.send(payload);
+        }
+      }
       return;
     }
   });
