@@ -1,0 +1,14 @@
+{
+  "name": "tetrinet-web",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run -ws build",
+    "test": "npm run -w @tetrinet/shared test",
+    "dev:server": "npm run -w @tetrinet/server dev"
+  }
+}
