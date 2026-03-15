@@ -10,15 +10,20 @@
     input, button, select { padding: 8px; border-radius: 6px; border: 1px solid #444; background: #1f1f1f; color: #eee; }
     button { cursor: pointer; }
     .panel { background: #1b1b1b; border: 1px solid #333; border-radius: 10px; padding: 12px; }
-    .panel h3 { margin-top: 0; }
+    .panel h3 { margin-top: 0; margin-bottom: 8px; }
     .board-wrap { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
     #tetrisCanvas { background: #080808; border: 1px solid #333; border-radius: 8px; }
     .hud { min-width: 220px; font-size: 14px; line-height: 1.4; }
     .hud code { color: #9ad6ff; }
-    #roomBoards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-    .room-board { background: #222; border-radius: 8px; padding: 8px; border: 1px solid #333; }
+    #roomBoards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; align-items: start; }
+    .room-board { background: #222; border-radius: 8px; padding: 6px; border: 1px solid #333; display: flex; flex-direction: column; min-width: 0; }
     .room-board h4 { margin: 0 0 6px 0; font-size: 14px; }
-    .room-board canvas { width: 100%; height: auto; background: #090909; border: 1px solid #333; }
+    .board-stack { width: 100%; }
+    .room-board canvas { display: block; width: 100%; height: auto; background: #090909; border: 1px solid #333; }
+    .bomb-tray { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 0; margin-top: 4px; width: 100%; }
+    .bomb-slot { aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; min-width: 0; }
+    .bomb-slot.first { outline: 2px solid #ff3d3d; outline-offset: -1px; }
+    .bomb-icon { width: 82%; height: 82%; border-radius: 50%; background: #ffffff; color: #0c0c0c; font-size: clamp(13px, 1.05vw, 19px); font-weight: 900; line-height: 1; display: flex; align-items: center; justify-content: center; border: 1px solid #d8d8d8; box-sizing: border-box; }
     .room-board.inactive { opacity: 0.45; }
     #players { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
     .player { background: #222; border-radius: 8px; padding: 8px; }
@@ -85,7 +90,6 @@
   </div>
 
   <div class="panel">
-    <h3>Campos da sala</h3>
     <div id="roomBoards"></div>
   </div>
 

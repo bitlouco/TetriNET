@@ -93,7 +93,7 @@ function drawBoardOnCanvas(canvasEl, board) {
   const cols = 10;
   const hiddenRows = 2;
   const rows = 20;
-  const cell = 12;
+  const cell = 18;
 
   canvasEl.width = cols * cell;
   canvasEl.height = rows * cell;
@@ -143,14 +143,34 @@ function renderRoomBoards(room) {
       : `${index + 1}. Vazio`;
     wrapper.appendChild(title);
 
+    const boardStack = document.createElement("div");
+    boardStack.className = "board-stack";
+
     const boardCanvas = document.createElement("canvas");
-    wrapper.appendChild(boardCanvas);
+    boardStack.appendChild(boardCanvas);
     const board = p
       ? (!p.active
         ? p.board
         : (id === playerId && localBoard ? localBoard : (remotePreviewBoards.get(id) ?? p.board)))
       : null;
     drawBoardOnCanvas(boardCanvas, board);
+
+    const bombTray = document.createElement("div");
+    bombTray.className = "bomb-tray";
+    const queue = p?.bombQueue ?? [];
+    for (let i = 0; i < 10; i += 1) {
+      const slot = document.createElement("div");
+      slot.className = `bomb-slot${i === 0 && queue.length > 0 ? " first" : ""}`;
+      if (i < queue.length) {
+        const icon = document.createElement("div");
+        icon.className = "bomb-icon";
+        icon.textContent = queue[i];
+        slot.appendChild(icon);
+      }
+      bombTray.appendChild(slot);
+    }
+    boardStack.appendChild(bombTray);
+    wrapper.appendChild(boardStack);
 
     roomBoardsEl.appendChild(wrapper);
   }
